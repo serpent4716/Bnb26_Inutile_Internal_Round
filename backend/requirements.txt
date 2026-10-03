@@ -1,0 +1,15 @@
+fastapi
+uvicorn[standard]
+motor
+pydantic-settings
+email-validator
+python-multipart
+pyjwt
+bcrypt
+pytest
+groq
+cloudinary
+faster-whisper
+google-genai
+rapidfuzz
+numpy
