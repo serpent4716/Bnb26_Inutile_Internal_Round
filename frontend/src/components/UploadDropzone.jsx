@@ -1,6 +1,8 @@
 import { useRef, useState } from 'react'
 import { UploadSimple } from '@phosphor-icons/react'
+import { btn } from './ui'
 
+/** Bone inset drop area; the upload button is an outline pill (the page keeps its one orange CTA elsewhere). */
 export default function UploadDropzone({ onFiles, uploading }) {
   const input = useRef(null)
   const [over, setOver] = useState(false)
@@ -16,29 +18,21 @@ export default function UploadDropzone({ onFiles, uploading }) {
       onDragOver={(e) => { e.preventDefault(); setOver(true) }}
       onDragLeave={() => setOver(false)}
       onDrop={drop}
-      className={`rounded-lg border border-dashed px-6 py-10 text-center transition-colors ${
-        over ? 'border-orange-500 bg-orange-500/5' : 'border-zinc-300 dark:border-zinc-700'
+      className={`flex flex-col items-center rounded-lg border border-dashed px-6 py-10 text-center transition-colors ${
+        over ? 'border-hairline-strong bg-card' : 'border-hairline bg-bone'
       }`}
     >
-      <UploadSimple size={28} className="mx-auto text-zinc-400 dark:text-zinc-500" />
+      <UploadSimple size={28} className="text-charcoal" />
       {uploading ? (
-        <p className="mt-3 text-sm">
-          Uploading <span className="font-medium">{uploading.name}</span>
-          <span className="ml-2 font-mono text-zinc-500 tabular-nums">{Math.round(uploading.pct * 100)}%</span>
+        <p className="mt-4 text-base">
+          Uploading <span className="font-semibold">{uploading.name}</span>
+          <span className="ml-2 font-mono text-charcoal tabular-nums">{Math.round(uploading.pct * 100)}%</span>
         </p>
       ) : (
         <>
-          <p className="mt-3 text-sm">
-            Drop footage here or{' '}
-            <button
-              type="button"
-              onClick={() => input.current.click()}
-              className="font-medium text-orange-600 underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-orange-500 dark:text-orange-400"
-            >
-              browse files
-            </button>
-          </p>
-          <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Video, audio or images. Videos are transcribed automatically.</p>
+          <p className="mt-4 font-display text-2xl font-semibold tracking-tight">Drop footage here</p>
+          <p className="mt-1 text-sm text-charcoal">Video, audio or images. Videos are transcribed automatically.</p>
+          <button type="button" onClick={() => input.current.click()} className={`${btn.outlineSm} mt-5`}>Browse files</button>
         </>
       )}
       <input

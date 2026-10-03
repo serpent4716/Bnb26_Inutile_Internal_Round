@@ -66,3 +66,22 @@ def test_platform_variants():
     assert li["aspect_ratio"] == "1:1" and li["caption_style"] == "clean_bottom" and li["captions"]
     hooked = with_hook(with_hook(EDL_DOC, "first"), "second")
     assert [o["text"] for o in hooked["overlays"]] == ["second"] and hooked["overlays"][0]["end"] == 2.0
+
+
+def test_rebuild_from_words_delete_and_restore():
+    from app.services.edl import build_edl, rebuild_from_words, with_hook
+
+    words = [{"w": w, "start": i * 0.5, "end": i * 0.5 + 0.4} for i, w in enumerate(
+        "So I lost fifty thousand rupees on one stock tip. Never again, seriously.".split())]
+    original = with_hook(build_edl(words, 0, 7.0, zoom_sentences=[(5.0, 7.0)]), "Hook")
+    all_starts = {w["start"] for w in words}
+
+    cut = rebuild_from_words(original, words, all_starts - {1.5}, 0, 7.0)       # delete "fifty"
+    assert len(cut["segments"]) == 2 and not any(s["start"] < 1.7 < s["end"] for s in cut["segments"])
+    assert "fifty" not in " ".join(c["text"] for c in cut["captions"])
+    assert cut["overlays"][0] == {**original["overlays"][0], "end": 2.0}         # hook stays 0-2s
+    assert cut["zooms"][0]["start"] < original["zooms"][0]["start"]           # zoom moved with its sentence
+
+    restored = rebuild_from_words(cut, words, all_starts, 0, 7.0)
+    assert restored["segments"] == original["segments"]
+    assert [c["text"] for c in restored["captions"]] == [c["text"] for c in original["captions"]]

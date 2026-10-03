@@ -34,6 +34,7 @@ INDEX_CHECK_TTL_S = 60
 SNIPPET_MATCH = 50  # min token_set_ratio for a sentence to count as the matching line
 
 _index_cache: tuple[float, bool] = (0.0, False)
+_query_vectors: dict[str, list[float]] = {}  # repeated searches cost no embedding quota
 
 
 def chunk_transcript(words: list[dict]) -> list[dict]:
@@ -98,7 +99,12 @@ def best_sentence(query: str, words: list[dict], start: float, end: float) -> di
 
 async def search(user_id: ObjectId, query: str, limit: int = 8) -> list[dict]:
     if await vector_index_ready():
-        qvec = (await llm.embed([query], task="RETRIEVAL_QUERY"))[0]
+        key = query.lower()
+        if key not in _query_vectors:
+            if len(_query_vectors) > 500:
+                _query_vectors.clear()
+            _query_vectors[key] = (await llm.embed([query], task="RETRIEVAL_QUERY"))[0]
+        qvec = _query_vectors[key]
         pipeline = [
             {"$vectorSearch": {"index": INDEX_NAME, "path": "vector", "queryVector": qvec,
                                "numCandidates": limit * 20, "limit": limit, "filter": {"user_id": user_id}}},

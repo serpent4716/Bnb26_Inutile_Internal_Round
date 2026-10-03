@@ -1,13 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, useParams } from 'react-router'
-import { ArrowLeft, DownloadSimple, Export, Lightning, Sparkle } from '@phosphor-icons/react'
+import { useParams } from 'react-router'
+import { DownloadSimple, Export, Lightning, Sparkle } from '@phosphor-icons/react'
+import { DetailHeader, SectionTitle } from '../components/Page'
 import EdlPreview from '../components/EdlPreview'
+import JobStepper from '../components/JobStepper'
+import TranscriptEditor from '../components/TranscriptEditor'
 import HookCard from '../components/HookCard'
-import { getAsset, waitForJob } from '../api/assets'
-import { adaptClip, getClip, renderClip } from '../api/clips'
+import { getAsset, getTranscript, waitForJob } from '../api/assets'
+import { adaptClip, editWords, getClip, renderClip, undoClip } from '../api/clips'
 import { errorMessage, mediaUrl } from '../api/client'
 import { generateHooks, listGenerated, selectVariant } from '../api/generate'
 import { formatTime } from '../lib/format'
+import { badge, btn, errorText, field, fieldArea, link, skeleton, tile } from '../components/ui'
 
 const PLATFORMS = [
   ['shorts', 'Shorts'], ['reels', 'Reels'], ['tiktok', 'TikTok'], ['youtube', 'YouTube'], ['linkedin', 'LinkedIn'], ['x', 'X'],
@@ -16,10 +20,6 @@ const COPY_FIELDS = [
   ['title', 'Title', 1], ['caption', 'Caption', 4], ['hashtags', 'Hashtags', 1], ['description', 'Description', 3], ['thumbnail_text', 'Thumbnail text', 1],
 ]
 const STEP = { reframing: 'Tracking the speaker', writing_copy: 'Writing copy for each platform', building_variants: 'Building versions', rendering: 'Rendering', publishing: 'Saving' }
-const primary =
-  'inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-orange-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-500 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50'
-const secondary =
-  'inline-flex items-center gap-2 rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium transition hover:bg-zinc-100 focus-visible:outline-2 focus-visible:outline-orange-500 active:scale-[0.98] disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800'
 const duration = (edl) => edl.segments.reduce((s, x) => s + x.end - x.start, 0)
 
 /** A copy field that saves the creator's edit on blur (PATCH /generated/{id}/select with text). */
@@ -41,8 +41,8 @@ function CopyField({ doc, label, rows, onSaved }) {
   return (
     <div className="grid gap-1.5">
       <div className="flex items-baseline justify-between">
-        <label htmlFor={doc.id} className="text-sm font-medium">{label}</label>
-        <span className="text-xs text-zinc-500 dark:text-zinc-400" aria-live="polite">{state}</span>
+        <label htmlFor={doc.id} className="text-sm font-semibold">{label}</label>
+        <span className="text-xs text-mute" aria-live="polite">{state}</span>
       </div>
       <Input
         id={doc.id}
@@ -50,7 +50,7 @@ function CopyField({ doc, label, rows, onSaved }) {
         value={value}
         onChange={(e) => { setValue(e.target.value); setState('') }}
         onBlur={save}
-        className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm leading-relaxed focus:border-orange-500 focus:outline-2 focus:outline-orange-500/30 dark:border-zinc-700 dark:bg-zinc-900"
+        className={rows > 1 ? fieldArea : field}
       />
     </div>
   )
@@ -76,23 +76,23 @@ function PlatformPanel({ clip, variant, copy, src, srcAspect, onCopySaved, onRen
     <div className="grid gap-8 md:grid-cols-[auto_minmax(0,1fr)]">
       <div className="grid content-start justify-items-start gap-3">
         <EdlPreview key={variant.platform} edl={variant.edl} src={src} srcAspect={srcAspect} label={variant.platform} />
-        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+        <p className="font-mono text-xs text-mute">
           {variant.edl.aspect_ratio}, {formatTime(duration(variant.edl))}, {variant.edl.captions.length ? 'captions on' : 'no captions'}
         </p>
         <div className="flex flex-wrap items-center gap-3">
-          <button onClick={exportIt} disabled={!!job} className={primary}>
+          <button onClick={exportIt} disabled={!!job} className={btn.dark}>
             <Export size={16} /> {job ? `${STEP[job.current_step] ?? 'Starting'}` : render.url ? 'Export again' : 'Export MP4'}
           </button>
           {render.url && !job && (
-            <a href={mediaUrl(render.url)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-sm font-medium text-orange-600 hover:underline dark:text-orange-400">
+            <a href={mediaUrl(render.url)} target="_blank" rel="noreferrer" className={`${link} inline-flex items-center gap-1.5 text-sm`}>
               <DownloadSimple size={16} /> Download
             </a>
           )}
         </div>
         {render.status === 'stale' && !job && (
-          <p className="text-xs text-zinc-500 dark:text-zinc-400">The hook changed after this export. Export again to update the file.</p>
+          <p className="text-xs text-mute">This clip changed after this export. Export again to update the file.</p>
         )}
-        {error && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+        {error && <p role="alert" className={errorText}>{error}</p>}
       </div>
       <div className="grid content-start gap-4">
         {copy ? (
@@ -100,7 +100,7 @@ function PlatformPanel({ clip, variant, copy, src, srcAspect, onCopySaved, onRen
             copy[type] && <CopyField key={copy[type].id} doc={copy[type]} label={label} rows={rows} onSaved={onCopySaved} />,
           )
         ) : (
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">No copy for this platform yet. Run Adapt for all again.</p>
+          <p className={`${tile} px-5 py-6 text-base text-charcoal`}>No copy for this platform yet. Run Adapt for all again.</p>
         )}
       </div>
     </div>
@@ -116,6 +116,8 @@ export default function ClipEditor() {
   const [hookBusy, setHookBusy] = useState(false)
   const [adaptJob, setAdaptJob] = useState(null)
   const [tab, setTab] = useState(null)
+  const [words, setWords] = useState(null)
+  const [editBusy, setEditBusy] = useState(false)
 
   const reload = useCallback(async () => {
     const c = await getClip(id)
@@ -126,7 +128,10 @@ export default function ClipEditor() {
 
   useEffect(() => {
     reload()
-      .then((c) => getAsset(c.source_asset_id).then(setAsset))
+      .then((c) => Promise.all([
+        getAsset(c.source_asset_id).then(setAsset),
+        getTranscript(c.source_asset_id).then((t) => setWords(t.segments.flatMap((s) => s.words))),
+      ]))
       .catch((e) => setError(errorMessage(e, 'Could not load this clip.')))
   }, [reload])
 
@@ -162,6 +167,18 @@ export default function ClipEditor() {
       setHookBusy(false)
     }
   }
+  const edit = async (call) => {
+    setEditBusy(true)
+    setError('')
+    try {
+      setClip(await call())
+    } catch (e) {
+      setError(errorMessage(e, 'Could not apply the edit.'))
+    } finally {
+      setEditBusy(false)
+    }
+  }
+
   const adaptAll = async () => {
     setError('')
     try {
@@ -178,8 +195,8 @@ export default function ClipEditor() {
 
   if (!clip || !asset) {
     return error
-      ? <p role="alert" className="text-sm text-red-600 dark:text-red-400">{error}</p>
-      : <div className="mx-auto h-64 max-w-6xl rounded-lg bg-zinc-200 motion-safe:animate-pulse dark:bg-zinc-800" />
+      ? <p role="alert" className={errorText}>{error}</p>
+      : <div className={`h-64 ${skeleton}`} />
   }
 
   const src = mediaUrl(asset.storage_url)
@@ -188,38 +205,37 @@ export default function ClipEditor() {
   const activeTab = tab ?? clip.variants[0]?.platform
 
   return (
-    <div className="mx-auto max-w-6xl">
-      <Link to={`/projects/${clip.project_id}`} className="inline-flex items-center gap-1.5 text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100">
-        <ArrowLeft size={16} /> Project
-      </Link>
-      <div className="mt-4 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">{clip.title}</h1>
-          <p className="mt-1 max-w-[65ch] text-sm text-zinc-600 dark:text-zinc-400">{clip.reason}</p>
-        </div>
-        <p className="text-right">
-          <span className="font-mono text-2xl font-semibold tabular-nums">{clip.scores.overall.toFixed(1)}</span>
-          <span className="block text-xs text-zinc-500 dark:text-zinc-400">score</span>
-        </p>
-      </div>
-      {error && <p role="alert" className="mt-3 text-sm text-red-600 dark:text-red-400">{error}</p>}
+    <div>
+      <DetailHeader
+        back={`/projects/${clip.project_id}`}
+        backLabel="Project"
+        title={clip.title}
+        meta={<p className="max-w-[60ch] text-lg leading-relaxed text-body">{clip.reason}</p>}
+        aside={
+          <p className="text-right">
+            <span className="font-display text-6xl leading-none font-bold tracking-tight">{clip.scores.overall.toFixed(1)}</span>
+            <span className="mt-1 block text-sm text-mute">score</span>
+          </p>
+        }
+      />
+      {error && <p role="alert" className={`mt-6 ${errorText}`}>{error}</p>}
 
-      <div className="mt-8 grid gap-10 md:grid-cols-[auto_minmax(0,1fr)]">
+      <div className="mt-12 grid gap-12 md:grid-cols-[auto_minmax(0,1fr)]">
         <div className="grid content-start justify-items-start gap-2">
           <EdlPreview edl={clip.edl} src={src} srcAspect={srcAspect} label="clip" />
-          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+          <p className="font-mono text-xs text-mute">
             {formatTime(duration(clip.edl))} edited from {formatTime(clip.edl.segments.at(-1).end - clip.edl.segments[0].start)} of footage, {clip.edl.segments.length} cuts
           </p>
         </div>
 
         <section aria-labelledby="hooks-heading">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 id="hooks-heading" className="font-medium">Hook</h2>
-            <button onClick={runHooks} disabled={hookBusy} className={secondary}>
+            <SectionTitle id="hooks-heading">Hook</SectionTitle>
+            <button onClick={runHooks} disabled={hookBusy} className={btn.outlineSm}>
               <Sparkle size={16} /> {hooks ? 'New hooks' : 'Generate hooks'}
             </button>
           </div>
-          <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">The line on screen for the first 2 seconds. Pick one, then edit it if you like.</p>
+          <p className="mt-2 text-base text-charcoal">The line on screen for the first 2 seconds. Pick one, then edit it if you like.</p>
           {hooks ? (
             <ol className="mt-4 grid gap-2">
               {hooks.variants.map((v, i) => (
@@ -233,35 +249,48 @@ export default function ClipEditor() {
               ))}
             </ol>
           ) : (
-            <p className="mt-4 rounded-lg border border-dashed border-zinc-300 px-4 py-6 text-center text-sm text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
+            <p className={`${tile} mt-5 px-5 py-6 text-center text-base text-charcoal`}>
               Five hooks, one of each type: question, bold claim, story, statistic, contrarian.
             </p>
           )}
         </section>
       </div>
 
-      <section aria-labelledby="platforms-heading" className="mt-14 border-t border-zinc-200 pt-8 dark:border-zinc-800">
+      {words && (
+        <div className="mt-16 border-t border-hairline pt-10">
+          <TranscriptEditor
+            clip={clip}
+            words={words}
+            busy={editBusy}
+            onKeep={(kept) => edit(() => editWords(id, kept))}
+            onUndo={() => edit(() => undoClip(id))}
+          />
+        </div>
+      )}
+
+      <section aria-labelledby="platforms-heading" className="mt-16 border-t border-hairline pt-10">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 id="platforms-heading" className="font-medium">Platforms</h2>
-            <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">Reframed around the speaker, sized and captioned for each platform, with copy in its style.</p>
+            <SectionTitle id="platforms-heading">Platforms</SectionTitle>
+            <p className="mt-2 text-base text-charcoal">Reframed around the speaker, sized and captioned for each platform, with copy in its style.</p>
           </div>
-          <button onClick={adaptAll} disabled={!!adaptJob} className={primary}>
-            <Lightning size={16} weight="fill" /> {adaptJob ? STEP[adaptJob.current_step] ?? 'Starting' : clip.variants.length ? 'Adapt again' : 'Adapt for all'}
+          <button onClick={adaptAll} disabled={!!adaptJob} className={btn.primary}>
+            <Lightning size={16} weight="fill" /> {adaptJob ? 'Adapting' : clip.variants.length ? 'Adapt again' : 'Adapt for all'}
           </button>
         </div>
 
+        {adaptJob && <div className={`${tile} mt-6 px-6 py-5`}><JobStepper job={adaptJob} /></div>}
         {clip.variants.length > 0 && (
           <>
-            <div role="tablist" aria-label="Platform" className="mt-6 mb-6 flex gap-1 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800">
+            <div role="tablist" aria-label="Platform" className="mt-8 mb-8 flex gap-1 overflow-x-auto">
               {PLATFORMS.filter(([p]) => variants[p]).map(([p, label]) => (
                 <button
                   key={p}
                   role="tab"
                   aria-selected={activeTab === p}
                   onClick={() => setTab(p)}
-                  className={`-mb-px shrink-0 border-b-2 px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-orange-500 ${
-                    activeTab === p ? 'border-orange-500' : 'border-transparent text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100'
+                  className={`inline-flex h-9 shrink-0 items-center rounded-full px-4 text-sm font-semibold transition-colors focus-ring ${
+                    activeTab === p ? 'bg-dark text-on-dark' : 'text-ink hover:bg-bone'
                   }`}
                 >
                   {label}

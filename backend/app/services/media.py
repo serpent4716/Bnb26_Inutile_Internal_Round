@@ -49,10 +49,14 @@ def parse_probe(data: dict) -> dict:
     return meta
 
 
+FFMPEG_TIMEOUT_S = 900
+
+
 async def run(args: list[str], cwd: Path | None = None) -> str:
     """Run a command in a thread (asyncio subprocesses are unreliable on Windows loops). Returns stdout.
     `cwd` lets filtergraphs reference helper files by bare name (no Windows path escaping)."""
-    proc = await asyncio.to_thread(subprocess.run, args, capture_output=True, encoding="utf-8", errors="replace", cwd=cwd)
+    proc = await asyncio.to_thread(subprocess.run, args, capture_output=True, encoding="utf-8", errors="replace", cwd=cwd,
+                                 timeout=FFMPEG_TIMEOUT_S)
     if proc.returncode != 0:
         raise RuntimeError(f"{args[0]} failed: {proc.stderr.strip()[-500:]}")
     return proc.stdout

@@ -58,7 +58,7 @@ def face_xs(src: Path, start: float, dur: float, src_w: int, src_h: int) -> list
     gets missed. Detect on overlapping square tiles (left / centre / right) instead and map back.
     """
     w, h = FRAME_W, max(2, round(FRAME_W * src_h / src_w / 2) * 2)
-    raw = subprocess.run(media.frames_args(src, start, dur, SAMPLE_FPS, w, h), capture_output=True, check=True).stdout
+    raw = subprocess.run(media.frames_args(src, start, dur, SAMPLE_FPS, w, h), capture_output=True, check=True, timeout=600).stdout
     detector, mp = _get_detector()
     side = min(w, h)
     tiles = sorted({0, (w - side) // 2, w - side})
@@ -94,6 +94,14 @@ def _track(src: Path, segments: list[dict], src_w: int, src_h: int) -> list[dict
         track += [{"t": output_time(min(seg["start"] + k / SAMPLE_FPS, seg["end"]), segments), "x_center": x}
                   for k, x in enumerate(xs)]
     return track
+
+
+def close_detector() -> None:
+    """Release MediaPipe before interpreter shutdown (scripts); avoids a noisy __del__ traceback."""
+    global _detector
+    if _detector:
+        _detector[0].close()
+        _detector = None
 
 
 async def crop_track(src: Path, segments: list[dict], src_w: int, src_h: int) -> list[dict]:

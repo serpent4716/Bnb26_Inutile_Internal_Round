@@ -190,3 +190,47 @@ def with_hook(edl: dict, text: str, seconds: float = 2.0) -> dict:
     others = [o for o in edl["overlays"] if o["type"] != "hook"]
     hook = {"type": "hook", "asset_id": None, "text": text, "start": 0.0, "end": min(seconds, edl_duration(edl))}
     return {**edl, "overlays": [hook, *others]}
+
+
+def source_time(t: float, segs: list[dict]) -> float:
+    """Clip timeline time -> source time (inverse of output_time)."""
+    offset = 0.0
+    for s in segs:
+        d = s["end"] - s["start"]
+        if t <= offset + d:
+            return s["start"] + (t - offset)
+        offset += d
+    return segs[-1]["end"] if segs else 0.0
+
+
+def rebuild_from_words(old: dict, words: list[dict], kept_starts: set[float], start: float, end: float) -> dict:
+    """Transcript editing: the creator's chosen words in [start, end] become the new EDL.
+    Segments/captions are rebuilt; zooms, crop track and overlays are carried through the old timeline
+    into the new one; a caption stays emphasized if its words were emphasized before."""
+    idxs = clip_word_range(words, start, end)
+    kept = [i for i in idxs if round(words[i]["start"], 3) in kept_starts]
+    if not kept:
+        raise ValueError("A clip needs at least one word")
+    segs = to_segments(words, kept, idxs, start, end)
+    old_segs = old["segments"]
+
+    def move(t: float) -> float:
+        return output_time(source_time(t, old_segs), segs)
+
+    emphasized = [(source_time(c["start"], old_segs), source_time(c["end"], old_segs))
+                  for c in old["captions"] if c.get("style") == "emphasis"]
+    captions = build_captions(words, kept, segs, set())
+    for c in captions:
+        t = source_time(c["start"], segs) + 0.01
+        if any(a <= t <= b for a, b in emphasized):
+            c["style"] = "emphasis"
+    total = sum(s["end"] - s["start"] for s in segs)
+    return EDL.model_validate({
+        **old,
+        "segments": segs,
+        "captions": captions,
+        "zooms": [z for z in ({**z, "start": move(z["start"]), "end": move(z["end"])} for z in old["zooms"]) if z["end"] > z["start"]],
+        "crop_track": [{"t": move(p["t"]), "x_center": p["x_center"]} for p in old["crop_track"]],
+        "overlays": [{**o, "start": 0.0, "end": min(o["end"], total)} if o["type"] == "hook"
+                     else {**o, "start": move(o["start"]), "end": move(o["end"])} for o in old["overlays"]],
+    }).model_dump()

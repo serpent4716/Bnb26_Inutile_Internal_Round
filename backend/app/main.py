@@ -9,7 +9,9 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.config import settings
 from app.db import create_indexes, ping
-from app.errors import http_error_handler, llm_quota_handler
+from google.genai import errors as genai_errors
+
+from app.errors import http_error_handler, llm_error_handler, llm_quota_handler
 from app.routers import assets, auth, clips, generate, insights, processing, projects, scripts
 from app.services.auth import get_current_user
 from app.services.llm import LLMQuotaError
@@ -37,6 +39,7 @@ app.add_middleware(
 )
 app.add_exception_handler(StarletteHTTPException, http_error_handler)
 app.add_exception_handler(LLMQuotaError, llm_quota_handler)
+app.add_exception_handler(genai_errors.APIError, llm_error_handler)
 
 api = APIRouter(prefix="/api/v1")
 

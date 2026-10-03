@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Link, useParams, useSearchParams } from 'react-router'
-import { ArrowLeft } from '@phosphor-icons/react'
+import { useParams, useSearchParams } from 'react-router'
+import { DetailHeader, SectionTitle } from '../components/Page'
+import { badge, card, errorText, skeleton } from '../components/ui'
 import TranscriptViewer from '../components/TranscriptViewer'
 import { getAsset, getTranscript } from '../api/assets'
 import { errorMessage, mediaUrl } from '../api/client'
@@ -31,49 +32,55 @@ export default function AssetDetail() {
     return () => clearInterval(timer)
   }, [id, status])
 
-  const back = (
-    <Link to="/library" className="inline-flex items-center gap-1.5 text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100">
-      <ArrowLeft size={16} /> Library
-    </Link>
-  )
-
-  if (error) return <div className="mx-auto max-w-6xl">{back}<p role="alert" className="mt-6 text-sm text-red-600 dark:text-red-400">{error}</p></div>
-  if (!asset) return <div className="mx-auto max-w-6xl">{back}<div className="mt-6 aspect-video max-w-3xl rounded-lg bg-zinc-200 motion-safe:animate-pulse dark:bg-zinc-800" /></div>
+  if (error || !asset) {
+    return (
+      <div>
+        <DetailHeader back="/library" backLabel="Library" title={error ? 'Could not open this file' : ' '} />
+        {error ? <p role="alert" className={`mt-6 ${errorText}`}>{error}</p> : <div className={`mt-10 aspect-video max-w-3xl ${skeleton}`} />}
+      </div>
+    )
+  }
 
   const src = mediaUrl(asset.storage_url)
   const transcribable = asset.type === 'video' || asset.type === 'audio'
+  const { duration, width, height } = asset.metadata
 
   return (
-    <div className="mx-auto max-w-6xl">
-      {back}
-      <h1 className="mt-4 truncate text-2xl font-semibold tracking-tight">{asset.filename}</h1>
-      <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-        {[formatTime(asset.metadata.duration), asset.metadata.width && `${asset.metadata.width}x${asset.metadata.height}`, transcript?.language]
-          .filter(Boolean)
-          .join(', ')}
-      </p>
+    <div>
+      <DetailHeader
+        back="/library"
+        backLabel="Library"
+        title={asset.filename}
+        meta={
+          <div className="flex flex-wrap items-center gap-2">
+            {duration != null && <span className={badge.tag}><span className="font-mono">{formatTime(duration)}</span></span>}
+            {width && <span className={badge.tag}><span className="font-mono">{width}x{height}</span></span>}
+            {transcript?.language && <span className={badge.tag}>{transcript.language}</span>}
+            {asset.ai.tags.slice(0, 5).map((t) => <span key={t} className={badge.tag}>{t}</span>)}
+          </div>
+        }
+      />
 
-      <div className="mt-6 grid grid-cols-1 gap-8 lg:grid-cols-[3fr_2fr]">
-        <div className="lg:sticky lg:top-6 lg:self-start">
-          {asset.type === 'video' && <video ref={setMedia} src={src} controls onLoadedMetadata={(e) => { e.currentTarget.currentTime = startAt }} className="w-full rounded-lg bg-zinc-950" />}
+      <div className="mt-10 grid grid-cols-1 gap-10 lg:grid-cols-[3fr_2fr]">
+        <div className="lg:sticky lg:top-24 lg:self-start">
+          {asset.type === 'video' && <video ref={setMedia} src={src} controls onLoadedMetadata={(e) => { e.currentTarget.currentTime = startAt }} className="w-full rounded-md bg-dark" />}
           {asset.type === 'audio' && <audio ref={setMedia} src={src} controls onLoadedMetadata={(e) => { e.currentTarget.currentTime = startAt }} className="w-full" />}
-          {asset.type === 'image' && <img src={src} alt={asset.filename} className="w-full rounded-lg" />}
+          {asset.type === 'image' && <img src={src} alt={asset.filename} className="w-full rounded-md" />}
+          {asset.ai.description && <p className="mt-4 text-base leading-relaxed text-body">{asset.ai.description}</p>}
         </div>
 
         {transcribable && (
-          <section aria-label="Transcript" className="lg:max-h-[75dvh] lg:overflow-y-auto lg:pr-2">
-            <h2 className="text-sm font-medium text-zinc-500 dark:text-zinc-400">Transcript</h2>
-            <div className="mt-3">
+          <section aria-labelledby="transcript-heading" className={`${card} p-6 lg:max-h-[75dvh] lg:overflow-y-auto`}>
+            <SectionTitle id="transcript-heading" sub="Click any word to jump the video there.">Transcript</SectionTitle>
+            <div className="mt-5">
               {transcript ? (
                 <TranscriptViewer transcript={transcript} media={media} />
               ) : status === 'failed' ? (
-                <p className="text-sm text-red-600 dark:text-red-400">Transcription failed. Try uploading the file again.</p>
+                <p className={errorText}>Transcription failed. Try uploading the file again.</p>
               ) : (
                 <div className="space-y-3">
-                  <p className="text-sm text-zinc-600 dark:text-zinc-400">Transcribing. This page updates when it's done.</p>
-                  {[90, 75, 85].map((w) => (
-                    <div key={w} style={{ width: `${w}%` }} className="h-4 rounded bg-zinc-200 motion-safe:animate-pulse dark:bg-zinc-800" />
-                  ))}
+                  <p className="text-base text-charcoal">Transcribing. This page updates when it's done.</p>
+                  {[90, 75, 85].map((w) => <div key={w} style={{ width: `${w}%` }} className={`h-4 ${skeleton}`} />)}
                 </div>
               )}
             </div>

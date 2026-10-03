@@ -161,7 +161,7 @@ def wav_chunks(path: Path, max_bytes: int = GROQ_MAX_BYTES) -> Iterator[tuple[fl
 async def _groq(audio: Path, on_progress: Progress) -> dict:
     from groq import AsyncGroq
 
-    client = AsyncGroq(api_key=settings.GROQ_API_KEY)
+    client = AsyncGroq(api_key=settings.GROQ_API_KEY, timeout=120, max_retries=1)  # then local fallback
     language, segments, words = None, [], []
     for offset, end, data, done in wav_chunks(audio):
         resp = await client.audio.transcriptions.create(

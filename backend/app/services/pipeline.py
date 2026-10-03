@@ -134,10 +134,15 @@ async def _find_clips(job_id: str, project: dict, asset: dict, transcript: dict,
     await update_job(job_id, step="building_edls", progress=88)
     emphasis = await clip_finder.pick_emphasis(found, sents)
     now, docs = utcnow(), []
+    src, meta = asset_dir(str(asset["_id"])) / asset["filename"], asset["metadata"]
     for c, (emph_words, zoom_sents) in zip(found, emphasis):
         clip_edl = edl.build_edl(words, c["start"], c["end"], align_result, emph_words, zoom_sents)
         if not clip_edl["segments"]:
             continue
+        try:  # clips are 9:16: track the speaker now so the first preview is already framed
+            clip_edl["crop_track"] = await reframe.crop_track(src, clip_edl["segments"], meta["width"], meta["height"])
+        except Exception:
+            log.warning("Reframe failed for clip %r; it will centre-crop", c["title"], exc_info=True)
         docs.append({
             "project_id": pid, "source_asset_id": asset["_id"], "kind": "short",
             "title": c["title"], "reason": c["reason"], "scores": c["scores"],

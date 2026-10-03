@@ -1,38 +1,34 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router'
-import { ArrowLeft, ArrowsClockwise, Check, FilmReel, PaperPlaneTilt, PencilSimple, Play, Stop, X } from '@phosphor-icons/react'
+import { ArrowsClockwise, Check, FilmReel, PaperPlaneTilt, PencilSimple, Play, Stop, X } from '@phosphor-icons/react'
+import JobStepper from '../components/JobStepper'
 import UploadDropzone from '../components/UploadDropzone'
-import { getJob, uploadAsset } from '../api/assets'
+import { DetailHeader, SectionTitle } from '../components/Page'
+import { badge, btn, card, errorText, fieldArea, link, skeleton, tile } from '../components/ui'
+import { getJob, uploadAsset, waitForJob } from '../api/assets'
 import { errorMessage, mediaUrl } from '../api/client'
+import { setClipStatus } from '../api/clips'
 import { buildRoughCut, getProject, processProject, publishProject, saveScript, setBestTake } from '../api/projects'
 import { formatTime } from '../lib/format'
 import { useEdlPlayer } from '../lib/useEdlPlayer'
-import { setClipStatus } from '../api/clips'
 
-const STEP_LABEL = {
-  extracting_keyframes: 'Extracting keyframes',
-  extracting_audio: 'Extracting audio',
-  transcribing: 'Transcribing',
-  saving: 'Saving transcript',
-  tagging: 'Describing footage',
-  aligning: 'Matching script to footage',
-  finding_clips: 'Finding clips',
-  building_edls: 'Building edits',
-}
 const STATUS = {
-  matched: { label: 'Matched', border: 'border-emerald-500', text: 'text-emerald-700 dark:text-emerald-400' },
-  retake: { label: 'Retakes', border: 'border-orange-500', text: 'text-orange-700 dark:text-orange-400' },
-  missing: { label: 'Missing', border: 'border-red-500', text: 'text-red-700 dark:text-red-400' },
+  matched: { label: 'Matched', border: 'border-success', badge: badge.success },
+  retake: { label: 'Retakes', border: 'border-ink', badge: badge.dark },
+  missing: { label: 'Missing', border: 'border-danger', badge: badge.danger },
 }
 const lineStatus = (m) => (m.status === 'missing' ? 'missing' : m.takes.length > 1 ? 'retake' : 'matched')
-const button =
-  'rounded-lg bg-orange-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-orange-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-500 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50'
+const STAGE = { idea: 'Idea', scripting: 'Scripting', recording: 'Recording', editing: 'Editing', review: 'Review', scheduled: 'Scheduled', published: 'Published' }
+
+// sub-nav pill tabs
+const tabClass = (active) =>
+  `inline-flex h-9 items-center rounded-full px-4 text-sm font-semibold transition-colors focus-ring ${active ? 'bg-dark text-on-dark' : 'text-ink hover:bg-bone'}`
 
 function ScriptStep({ project, onSaved }) {
   const [content, setContent] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  if (project.script) return <p className="text-sm">{project.script.lines.length} lines, labelled by section.</p>
+  if (project.script) return <p className="text-base"><span className="font-semibold">{project.script.lines.length} lines</span>, each labelled hook, intro, body or CTA.</p>
 
   const save = async () => {
     setBusy(true)
@@ -47,33 +43,35 @@ function ScriptStep({ project, onSaved }) {
     }
   }
   return (
-    <div className="grid gap-2">
-      <label htmlFor="script" className="text-sm font-medium">Paste your script</label>
+    <div className="grid gap-3">
+      <label htmlFor="script" className="text-sm font-semibold">Paste your script</label>
       <textarea
         id="script"
         rows={8}
         value={content}
         onChange={(e) => setContent(e.target.value)}
-        placeholder="One line or sentence per beat. We split it into lines and match each one to your footage."
-        className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm leading-relaxed placeholder:text-zinc-500 focus:border-orange-500 focus:outline-2 focus:outline-orange-500/30 dark:border-zinc-700 dark:bg-zinc-900 dark:placeholder:text-zinc-400"
+        placeholder="One line or sentence per beat. Each one gets matched to your footage."
+        className={fieldArea}
       />
-      {error && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{error}</p>}
-      <div><button onClick={save} disabled={busy || !content.trim()} className={button}>{busy ? 'Saving' : 'Save script'}</button></div>
+      {error && <p role="alert" className={errorText}>{error}</p>}
+      <div><button onClick={save} disabled={busy || !content.trim()} className={btn.dark}>{busy ? 'Saving' : 'Save script'}</button></div>
     </div>
   )
 }
 
 function FootageStep({ project, onUploaded }) {
   const [uploading, setUploading] = useState(null)
+  const [job, setJob] = useState(null)
   const [error, setError] = useState('')
   const footage = project.assets.at(-1)
+  if (job) return <JobStepper job={job} />
   if (footage) {
     const s = footage.ai.status
     return (
-      <p className="text-sm">
-        {footage.filename}
-        <span className="ml-2 text-zinc-500 dark:text-zinc-400">
-          {s === 'ready' ? 'transcribed' : s === 'failed' ? 'transcription failed' : 'transcribing...'}
+      <p className="flex flex-wrap items-center gap-2 text-base">
+        <span className="font-mono text-sm">{footage.filename}</span>
+        <span className={s === 'ready' ? badge.success : s === 'failed' ? badge.danger : badge.dark}>
+          {s === 'ready' ? 'Transcribed' : s === 'failed' ? 'Transcription failed' : 'Transcribing'}
         </span>
       </p>
     )
@@ -82,7 +80,11 @@ function FootageStep({ project, onUploaded }) {
     setError('')
     setUploading({ name: file.name, pct: 0 })
     try {
-      await uploadAsset(file, (pct) => setUploading({ name: file.name, pct }), project.id)
+      const { job_id } = await uploadAsset(file, (pct) => setUploading({ name: file.name, pct }), project.id)
+      setUploading(null)
+      // Show the job's steps while it runs; clear them when it succeeds, keep them (with the error) if it fails.
+      const ok = job_id ? await waitForJob(job_id, setJob).then(() => true, () => false) : true
+      if (ok) setJob(null)
       onUploaded()
     } catch (e) {
       setError(errorMessage(e, 'Upload failed.'))
@@ -93,18 +95,8 @@ function FootageStep({ project, onUploaded }) {
   return (
     <>
       <UploadDropzone onFiles={upload} uploading={uploading} />
-      {error && <p role="alert" className="mt-2 text-sm text-red-600 dark:text-red-400">{error}</p>}
+      {error && <p role="alert" className={`mt-3 ${errorText}`}>{error}</p>}
     </>
-  )
-}
-
-function JobProgress({ job }) {
-  if (job.status === 'failed') return <p role="alert" className="text-sm text-red-600 dark:text-red-400">Processing failed: {job.error}</p>
-  return (
-    <p className="text-sm text-zinc-600 dark:text-zinc-400" aria-live="polite">
-      {STEP_LABEL[job.current_step] ?? 'Starting'}
-      <span className="ml-2 font-mono tabular-nums">{job.progress}%</span>
-    </p>
   )
 }
 
@@ -113,106 +105,93 @@ function RoughCutBar({ clip, stale, building, onBuild, player, footageDuration }
   const total = segs?.reduce((sum, x) => sum + x.end - x.start, 0) ?? 0
   const playing = player.playing?.key === clip?.id ? player.playing : null
 
-  if (!clip) {
-    return (
-      <div className="flex flex-wrap items-center gap-3">
-        <button onClick={onBuild} disabled={building} className={`${button} inline-flex items-center gap-2`}>
-          <FilmReel size={18} /> {building ? 'Building' : 'Build rough cut'}
-        </button>
-        <span className="text-xs text-zinc-500 dark:text-zinc-400">The best take of every line, in script order.</span>
-      </div>
-    )
-  }
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-      {!playing ? (
-        <button onClick={() => player.play(clip.id, segs)} disabled={!segs.length} className={`${button} inline-flex items-center gap-2`}>
-          <Play size={16} weight="fill" /> Play rough cut
-        </button>
-      ) : (
-        <button onClick={player.stop} className={`${button} inline-flex items-center gap-2`}>
-          <Stop size={16} weight="fill" /> Stop
-        </button>
-      )}
-      <span className="text-sm text-zinc-600 dark:text-zinc-400" aria-live="polite">
-        {!playing
-          ? <>Rough cut: {segs.length} takes, <span className="tabular-nums">{formatTime(total)}</span>{footageDuration ? <> from <span className="tabular-nums">{formatTime(footageDuration)}</span> of footage</> : null}</>
-          : <>Playing take {playing.seg + 1} of {playing.count}</>}
-      </span>
-      {stale && (
-        <span className="text-sm text-zinc-600 dark:text-zinc-400">
-          Takes changed since it was built.{' '}
-          <button onClick={onBuild} disabled={building} className="font-medium text-orange-600 underline-offset-4 hover:underline dark:text-orange-400">
-            {building ? 'Rebuilding' : 'Rebuild'}
+    <div className={`${tile} flex flex-wrap items-center gap-x-5 gap-y-3 px-5 py-4`}>
+      {!clip ? (
+        <>
+          <button onClick={onBuild} disabled={building} className={btn.darkSm}>
+            <FilmReel size={16} /> {building ? 'Building' : 'Build rough cut'}
           </button>
-        </span>
+          <span className="text-sm text-charcoal">The best take of every line, in script order.</span>
+        </>
+      ) : (
+        <>
+          {!playing ? (
+            <button onClick={() => player.play(clip.id, segs)} disabled={!segs.length} className={btn.darkSm}>
+              <Play size={14} weight="fill" /> Play rough cut
+            </button>
+          ) : (
+            <button onClick={player.stop} className={btn.darkSm}><Stop size={14} weight="fill" /> Stop</button>
+          )}
+          <span className="text-sm text-charcoal" aria-live="polite">
+            {!playing
+              ? <>Rough cut: {segs.length} takes, <span className="font-mono">{formatTime(total)}</span>{footageDuration ? <> from <span className="font-mono">{formatTime(footageDuration)}</span> of footage</> : null}</>
+              : <>Playing take {playing.seg + 1} of {playing.count}</>}
+          </span>
+          {stale && (
+            <span className="text-sm text-charcoal">
+              Takes changed since it was built.{' '}
+              <button onClick={onBuild} disabled={building} className={link}>{building ? 'Rebuilding' : 'Rebuild'}</button>
+            </span>
+          )}
+        </>
       )}
     </div>
   )
 }
 
-const secondary =
-  'inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-500 active:scale-[0.98]'
-const idle = 'border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800'
-
+/** model-card for a suggested clip: score in the display face, actions as small pills. */
 function ClipCard({ clip, player, onStatus }) {
   const segs = clip.edl.segments
   const duration = segs.reduce((sum, s) => sum + s.end - s.start, 0)
   const playing = player.playing?.key === clip.id
   const { hook, completeness, virality, overall } = clip.scores
   const toggle = (status) => onStatus(clip, clip.status === status ? 'suggested' : status)
+  const approved = clip.status === 'approved' || clip.status === 'exported'
+  const rejected = clip.status === 'rejected'
 
   return (
-    <li
-      className={`rounded-lg border p-4 transition ${
-        clip.status === 'approved'
-          ? 'border-emerald-500/70'
-          : clip.status === 'rejected'
-            ? 'border-zinc-200 opacity-55 dark:border-zinc-800'
-            : 'border-zinc-200 dark:border-zinc-800'
-      }`}
-    >
+    <li className={`${card} p-5 transition-opacity ${approved ? 'border-success' : ''} ${rejected ? 'opacity-55' : ''}`}>
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <h3 className="font-medium">{clip.title}</h3>
-          <p className="mt-0.5 text-xs text-zinc-500 tabular-nums dark:text-zinc-400">
-            {formatTime(duration)} clip, from {formatTime(segs[0].start)} to {formatTime(segs.at(-1).end)} of the footage
+          <h3 className="heading-sm">{clip.title}</h3>
+          <p className="mt-1 text-sm text-mute">
+            <span className="font-mono">{formatTime(duration)}</span> clip from <span className="font-mono">{formatTime(segs[0].start)}</span> to{' '}
+            <span className="font-mono">{formatTime(segs.at(-1).end)}</span>
           </p>
         </div>
         <p className="shrink-0 text-right">
-          <span className="font-mono text-2xl font-semibold tabular-nums">{overall.toFixed(1)}</span>
-          <span className="block text-xs text-zinc-500 dark:text-zinc-400">score</span>
+          <span className="font-display text-4xl leading-none font-bold tracking-tight">{overall.toFixed(1)}</span>
+          <span className="mt-1 block text-xs text-mute">score</span>
         </p>
       </div>
-      <p className="mt-2 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">{clip.reason}</p>
-      <dl className="mt-3 flex gap-5 text-xs">
+      <p className="mt-3 text-base leading-relaxed text-body">{clip.reason}</p>
+      <dl className="mt-4 flex flex-wrap gap-2">
         {[['Hook', hook], ['Complete', completeness], ['Viral', virality]].map(([label, v]) => (
-          <div key={label} className="flex gap-1.5">
-            <dt className="text-zinc-500 dark:text-zinc-400">{label}</dt>
-            <dd className="font-mono font-medium tabular-nums">{v}</dd>
+          <div key={label} className={badge.tag}>
+            <dt className="text-charcoal">{label}</dt>
+            <dd className="font-mono font-semibold">{v}</dd>
           </div>
         ))}
       </dl>
-      <div className="mt-4 flex flex-wrap gap-2">
-        <button onClick={() => (playing ? player.stop() : player.play(clip.id, segs))} className={`${secondary} ${idle}`}>
+      <div className="mt-5 flex flex-wrap gap-2">
+        <Link to={`/clips/${clip.id}`} className={btn.darkSm}><PencilSimple size={14} /> Edit</Link>
+        <button onClick={() => (playing ? player.stop() : player.play(clip.id, segs))} className={btn.outlineSm}>
           {playing ? <><Stop size={14} weight="fill" /> Stop</> : <><Play size={14} weight="fill" /> Play</>}
         </button>
-        <Link to={`/clips/${clip.id}`} className={`${secondary} ${idle}`}>
-          <PencilSimple size={14} /> Edit
-        </Link>
         <button
           onClick={() => toggle('approved')}
           aria-pressed={clip.status === 'approved'}
-          className={`${secondary} ${clip.status === 'approved' ? 'border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700' : idle}`}
+          className={`${btn.toggleSm} ${clip.status === 'approved' ? 'border-success bg-success text-on-dark' : 'border-hairline-strong bg-card text-ink hover:bg-bone'}`}
         >
           <Check size={14} weight="bold" /> {clip.status === 'approved' ? 'Approved' : 'Approve'}
         </button>
         <button
           onClick={() => toggle('rejected')}
-          aria-pressed={clip.status === 'rejected'}
-          className={`${secondary} ${clip.status === 'rejected' ? 'border-zinc-500 bg-zinc-500 text-white dark:border-zinc-600 dark:bg-zinc-600' : idle}`}
+          aria-pressed={rejected}
+          className={`${btn.toggleSm} ${rejected ? 'border-dark bg-dark text-on-dark' : 'border-hairline bg-transparent text-charcoal hover:bg-bone'}`}
         >
-          <X size={14} weight="bold" /> {clip.status === 'rejected' ? 'Rejected' : 'Reject'}
+          <X size={14} weight="bold" /> {rejected ? 'Rejected' : 'Reject'}
         </button>
       </div>
     </li>
@@ -223,47 +202,45 @@ function ScriptLine({ line, match, active, onSeek, onPickTake }) {
   const status = lineStatus(match)
   const take = match.takes[match.best_take_index]
   return (
-    <li className={`border-l-2 py-3 pl-4 transition-colors ${STATUS[status].border} ${active ? 'bg-orange-500/5' : ''}`}>
+    <li className={`rounded-r-md border-l-[3px] py-4 pr-3 pl-5 transition-colors ${STATUS[status].border} ${active ? 'bg-bone' : ''}`}>
       <div className="flex items-start justify-between gap-3">
         <button
           onClick={() => take && onSeek(take.start)}
           disabled={!take}
-          className="text-left leading-relaxed enabled:hover:text-orange-600 focus-visible:outline-2 focus-visible:outline-orange-500 disabled:text-zinc-500 dark:enabled:hover:text-orange-400"
+          className="rounded-xs text-left text-base leading-relaxed enabled:hover:underline enabled:hover:underline-offset-4 focus-ring disabled:text-mute"
         >
           {line.text}
         </button>
-        <span className="shrink-0 text-xs text-zinc-500 capitalize dark:text-zinc-400">{line.section === 'cta' ? 'CTA' : line.section}</span>
+        <span className={`${badge.tag} shrink-0`}>{line.section === 'cta' ? 'CTA' : line.section[0].toUpperCase() + line.section.slice(1)}</span>
       </div>
-      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-        <span className={`font-medium ${STATUS[status].text}`}>{STATUS[status].label}</span>
+      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
+        <span className={STATUS[status].badge}>{STATUS[status].label}</span>
         {take ? (
           <>
-            <button onClick={() => onSeek(take.start)} className="font-mono text-zinc-600 tabular-nums hover:text-orange-600 dark:text-zinc-400 dark:hover:text-orange-400">
+            <button onClick={() => onSeek(take.start)} className="rounded-xs font-mono text-charcoal hover:text-ink hover:underline focus-ring">
               {formatTime(take.start)}
             </button>
-            <span className="text-zinc-500 dark:text-zinc-400">{Math.round(take.similarity * 100)}% match</span>
+            <span className="text-mute"><span className="font-mono">{Math.round(take.similarity * 100)}%</span> match</span>
             {match.takes.length > 1 && (
-              <label className="flex items-center gap-1.5 text-zinc-600 dark:text-zinc-400">
+              <label className="flex items-center">
                 <span className="sr-only">Take for line {line.idx + 1}</span>
                 <select
                   value={match.best_take_index}
                   onChange={(e) => onPickTake(Number(e.target.value))}
-                  className="rounded-md border border-zinc-300 bg-white px-1.5 py-0.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+                  className="h-8 rounded-full border border-hairline-strong bg-card pr-8 pl-3 text-sm font-semibold focus-ring"
                 >
                   {match.takes.map((t, i) => (
-                    <option key={i} value={i}>
-                      Take {i + 1} at {formatTime(t.start)} ({Math.round(t.similarity * 100)}%)
-                    </option>
+                    <option key={i} value={i}>Take {i + 1} at {formatTime(t.start)} ({Math.round(t.similarity * 100)}%)</option>
                   ))}
                 </select>
               </label>
             )}
           </>
         ) : (
-          <span className="text-zinc-500 dark:text-zinc-400">Not found in the footage. Re-record it or cover it with B-roll.</span>
+          <span className="text-charcoal">Not found in the footage. Re-record it or cover it with B-roll.</span>
         )}
       </div>
-      {take?.visual && <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">On screen: {take.visual}</p>}
+      {take?.visual && <p className="mt-2 text-sm text-mute">On screen: {take.visual}</p>}
     </li>
   )
 }
@@ -312,7 +289,7 @@ export default function ProjectDetail() {
     setError('')
     try {
       const { job_id } = await processProject(id)
-      setJob({ id: job_id, status: 'queued', current_step: '', progress: 0 })
+      setJob({ id: job_id, type: 'pipeline', status: 'queued', current_step: '', progress: 0 })
     } catch (e) {
       setError(errorMessage(e, 'Could not start processing.'))
     }
@@ -398,11 +375,12 @@ export default function ProjectDetail() {
 
   if (!project) {
     return error
-      ? <p role="alert" className="text-sm text-red-600 dark:text-red-400">{error}</p>
-      : <div className="mx-auto h-40 max-w-6xl rounded-lg bg-zinc-200 motion-safe:animate-pulse dark:bg-zinc-800" />
+      ? <p role="alert" className={errorText}>{error}</p>
+      : <div className={`h-40 ${skeleton}`} />
   }
 
   const canProcess = project.script && footage?.ai.status === 'ready' && !jobRunning
+  const canPublish = project.stage !== 'published' && shorts.some((c) => ['approved', 'exported'].includes(c.status))
   const matchByLine = Object.fromEntries((alignment?.matches ?? []).map((m) => [m.script_line_idx, m]))
   const activeLine = alignment?.matches.find((m) => {
     const t = m.takes[m.best_take_index]
@@ -410,68 +388,67 @@ export default function ProjectDetail() {
   })?.script_line_idx
 
   return (
-    <div className="mx-auto max-w-6xl">
-      <Link to="/projects" className="inline-flex items-center gap-1.5 text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100">
-        <ArrowLeft size={16} /> Projects
-      </Link>
-      <div className="mt-4 flex flex-wrap items-end justify-between gap-4">
-        <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">{project.title}</h1>
-          <span className="rounded-full border border-zinc-300 px-2.5 py-0.5 text-xs text-zinc-600 capitalize dark:border-zinc-700 dark:text-zinc-400">{project.stage}</span>
-        </div>
-        <div className="flex flex-wrap items-center gap-4">
-          {alignment && (
-            <button onClick={process} disabled={!canProcess} className="inline-flex items-center gap-2 text-sm text-zinc-600 hover:text-zinc-900 disabled:opacity-50 dark:text-zinc-400 dark:hover:text-zinc-100">
-              <ArrowsClockwise size={16} /> Re-run processing
-            </button>
-          )}
-          {project.stage !== 'published' && shorts.some((c) => ['approved', 'exported'].includes(c.status)) && (
-            <button onClick={publish} disabled={publishing} title="Mock publish: no platform is connected; records sample analytics" className={`${button} inline-flex items-center gap-2`}>
-              <PaperPlaneTilt size={16} /> {publishing ? 'Publishing' : 'Publish (mock)'}
-            </button>
-          )}
-        </div>
-      </div>
-      {error && <p role="alert" className="mt-3 text-sm text-red-600 dark:text-red-400">{error}</p>}
-      {job && <div className="mt-3"><JobProgress job={job} /></div>}
+    <div>
+      <DetailHeader
+        back="/projects"
+        backLabel="Projects"
+        title={project.title}
+        meta={<span className={project.stage === 'published' ? badge.success : badge.tag}>{STAGE[project.stage]}</span>}
+        aside={
+          <div className="flex flex-wrap items-center gap-2">
+            {alignment && (
+              <button onClick={process} disabled={!canProcess} className={btn.outlineSm}>
+                <ArrowsClockwise size={16} /> Re-run processing
+              </button>
+            )}
+            {canPublish && (
+              <button onClick={publish} disabled={publishing} title="Mock publish: no platform is connected; records sample analytics" className={btn.primary}>
+                <PaperPlaneTilt size={16} /> {publishing ? 'Publishing' : 'Publish (mock)'}
+              </button>
+            )}
+          </div>
+        }
+      />
+      {error && <p role="alert" className={`mt-6 ${errorText}`}>{error}</p>}
+      {job && <div className={`${tile} mt-8 px-6 py-5`}><JobStepper job={job} /></div>}
 
       {!alignment ? (
-        <ol className="mt-8 grid max-w-2xl gap-8">
-          <li>
-            <h2 className="mb-3 font-medium">Script</h2>
-            <ScriptStep project={project} onSaved={load} />
-          </li>
-          <li>
-            <h2 className="mb-3 font-medium">Footage</h2>
-            <FootageStep project={project} onUploaded={load} />
-          </li>
-          <li>
-            <button onClick={process} disabled={!canProcess} className={button}>Match script to footage</button>
-            {!canProcess && !jobRunning && (
-              <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">Needs a script and transcribed footage.</p>
-            )}
+        <ol className="mt-10 grid max-w-3xl gap-4">
+          {[
+            ['Script', <ScriptStep key="s" project={project} onSaved={load} />],
+            ['Footage', <FootageStep key="f" project={project} onUploaded={load} />],
+          ].map(([label, body], i) => (
+            <li key={label} className={`${tile} p-6`}>
+              <h2 className="heading-sm"><span className="mr-3 font-mono text-base text-mute">0{i + 1}</span>{label}</h2>
+              <div className="mt-4">{body}</div>
+            </li>
+          ))}
+          <li className={`${tile} flex flex-wrap items-center gap-4 p-6`}>
+            <h2 className="heading-sm"><span className="mr-3 font-mono text-base text-mute">03</span>Match</h2>
+            <button onClick={process} disabled={!canProcess} className={btn.primary}>Match script to footage</button>
+            {!canProcess && !jobRunning && <p className="text-sm text-charcoal">Needs a script and transcribed footage.</p>}
           </li>
         </ol>
       ) : (
         <>
-          <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-            <span className="font-semibold text-zinc-900 tabular-nums dark:text-zinc-100">{Math.round(alignment.coverage * 100)}% coverage</span>
-            {', '}{counts.matched + counts.retake} of {alignment.matches.length} lines found, {counts.retake} with retakes, {counts.missing} missing
-          </p>
-          <div className="mt-5">
-            <RoughCutBar
-              clip={roughCut}
-              stale={roughCutStale}
-              building={building}
-              onBuild={buildCut}
-              player={player}
-              footageDuration={footage.metadata.duration}
-            />
+          <div className="mt-10 flex flex-wrap items-end gap-x-8 gap-y-4">
+            <p>
+              <span className="font-display text-6xl leading-none font-bold tracking-tight">{Math.round(alignment.coverage * 100)}%</span>
+              <span className="ml-3 text-base text-charcoal">coverage</span>
+            </p>
+            <p className="flex flex-wrap gap-2 pb-1">
+              <span className={badge.success}>{counts.matched + counts.retake} of {alignment.matches.length} lines found</span>
+              <span className={badge.dark}>{counts.retake} with retakes</span>
+              <span className={counts.missing ? badge.danger : badge.tag}>{counts.missing} missing</span>
+            </p>
+          </div>
+          <div className="mt-6">
+            <RoughCutBar clip={roughCut} stale={roughCutStale} building={building} onBuild={buildCut} player={player} footageDuration={footage.metadata.duration} />
           </div>
 
-          <div className="mt-6 grid grid-cols-1 gap-8 lg:grid-cols-2">
+          <div className="mt-10 grid grid-cols-1 gap-10 lg:grid-cols-2">
             <div className="order-2 lg:order-1">
-              <div role="tablist" aria-label="Project view" className="mb-4 flex gap-1 border-b border-zinc-200 dark:border-zinc-800">
+              <div role="tablist" aria-label="Project view" className="mb-6 flex gap-1">
                 {[['script', 'Script'], ['clips', `Clips (${shorts.length})`]].map(([key, label]) => (
                   <button
                     key={key}
@@ -480,11 +457,7 @@ export default function ProjectDetail() {
                     aria-selected={tab === key}
                     aria-controls={`panel-${key}`}
                     onClick={() => setTab(key)}
-                    className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-orange-500 ${
-                      tab === key
-                        ? 'border-orange-500 text-zinc-900 dark:text-zinc-100'
-                        : 'border-transparent text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100'
-                    }`}
+                    className={tabClass(tab === key)}
                   >
                     {label}
                   </button>
@@ -511,11 +484,11 @@ export default function ProjectDetail() {
               ) : (
                 <section role="tabpanel" id="panel-clips" aria-labelledby="tab-clips">
                   {shorts.length ? (
-                    <ol className="space-y-3">
+                    <ol className="space-y-4">
                       {shorts.map((c) => <ClipCard key={c.id} clip={c} player={player} onStatus={changeStatus} />)}
                     </ol>
                   ) : (
-                    <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                    <p className={`${tile} px-6 py-8 text-base text-charcoal`}>
                       No clips yet. Each clip needs 15 to 60 seconds of self-contained material, so short footage may not have any.
                     </p>
                   )}
@@ -523,18 +496,17 @@ export default function ProjectDetail() {
               )}
             </div>
 
-            <div className="order-1 lg:sticky lg:top-6 lg:order-2 lg:self-start">
-              <video ref={setMedia} src={mediaUrl(footage.storage_url)} controls className="w-full rounded-lg bg-zinc-950" />
+            <div className="order-1 lg:sticky lg:top-24 lg:order-2 lg:self-start">
+              <video ref={setMedia} src={mediaUrl(footage.storage_url)} controls className="w-full rounded-md bg-dark" />
               {alignment.unscripted_ranges.length > 0 && (
-                <section className="mt-6">
-                  <h2 className="text-sm font-medium">Unscripted moments</h2>
-                  <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">Ad-libs often make the best clips.</p>
-                  <ul className="mt-3 space-y-2">
+                <section aria-labelledby="adlib-heading" className={`${card} mt-6 p-6`}>
+                  <SectionTitle id="adlib-heading" sub="Unscripted moments. Ad-libs often make the best clips.">Ad-libs</SectionTitle>
+                  <ul className="mt-4 space-y-3">
                     {alignment.unscripted_ranges.map((r) => (
                       <li key={r.start}>
-                        <button onClick={() => seek(r.start)} className="text-left text-sm hover:text-orange-600 dark:hover:text-orange-400">
-                          <span className="mr-2 font-mono text-xs text-zinc-500 tabular-nums">{formatTime(r.start)}</span>
-                          {r.text}
+                        <button onClick={() => seek(r.start)} className="group rounded-xs text-left text-base leading-relaxed focus-ring">
+                          <span className="mr-2 font-mono text-sm text-mute">{formatTime(r.start)}</span>
+                          <span className="group-hover:underline group-hover:underline-offset-4">{r.text}</span>
                         </button>
                       </li>
                     ))}

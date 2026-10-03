@@ -84,7 +84,9 @@ def test_snap_shape_pad():
     assert (sents[i0]["start"], sents[i1]["end"]) == (10.0, 32.0)
     start, end = shape(i0, i1, sents, ws, duration=75)
     assert (start, end) == (9.85, 32.15)    # 0.15s pad, gaps to neighbours are 0.5s
-    assert shape(0, 3, sents, ws, 75) is None                 # 9.5s < 15s minimum
+    short = shape(0, 3, sents, ws, 75)                        # 9.5s pick grows forward by whole sentences to >= 15s
+    assert short[0] == 0.0 and short[1] - short[0] >= 15 and short[1] - 0.15 in [s["end"] for s in sents]
+    assert shape(0, 1, sents[:2], ws[:4], 75) is None         # nothing left to grow into -> dropped
     long = shape(0, 29, sents, ws, 75)                         # 74.5s -> trimmed to <= 60s at a sentence end
     assert long and long[1] - long[0] <= 60.3 and long[1] - 0.15 in [s["end"] for s in sents]
 

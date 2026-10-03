@@ -213,4 +213,4 @@ async def ai_summary(user: dict, perf: dict, prod: dict) -> Cards:
         "from these numbers. Mention the production bottleneck if there is one.\n\n"
         f"Stats JSON:\n{stats}"
     )
-    return await llm.generate_json(prompt, Cards)
+    return await llm.generate_json(prompt, Cards, deep=True)

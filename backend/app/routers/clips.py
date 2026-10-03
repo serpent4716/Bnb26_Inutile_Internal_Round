@@ -11,7 +11,8 @@ from app.models.clip import EDL, Clip
 from app.models.common import utcnow
 from app.models.generated_content import Platform
 from app.services.auth import get_current_user
-from app.services.pipeline import adapt_clip, render_clip
+from app.services.edl import platform_variant, rebuild_from_words
+from app.services.pipeline import adapt_clip, clip_context, render_clip
 from app.services.reframe import PLATFORMS
 from app.services.workflow import advance
 
@@ -58,14 +59,50 @@ async def save_edl(clip_id: str, body: EDL, user: dict = Depends(get_current_use
     })
 
 
+class WordsIn(BaseModel):
+    kept: list[float] = Field(min_length=1)  # start times of the words to keep
+
+
+def _rebuilt_variants(clip: dict, main: dict, words: list[dict]) -> list[dict]:
+    """Platform versions follow the main cut; exports made from the old cut are marked stale."""
+    return [{**v, "edl": platform_variant(main, PLATFORMS[v["platform"]], words),
+             "render": {**v["render"], "status": "stale"} if v["render"].get("url") else v["render"]}
+            for v in clip.get("variants", [])]
+
+
+def clip_source_range(clip: dict) -> tuple[float, float]:
+    """The footage a clip may draw words from: the AI's original cut, widened by any later edit."""
+    segs = clip["edl_versions"][0]["edl"]["segments"] + clip["edl"]["segments"]
+    return min(s["start"] for s in segs), max(s["end"] for s in segs)
+
+
+@router.put("/clips/{clip_id}/words", response_model=Clip)
+async def edit_words(clip_id: str, body: WordsIn, user: dict = Depends(get_current_user)):
+    """Transcript editing: delete/restore words and the video follows (Descript-style). Versioned like any edit;
+    platform versions are rebuilt from the new cut and their old exports marked stale."""
+    clip = await owned_clip(clip_id, user)
+    text_, words = await clip_context(clip)
+    start, end = clip_source_range(clip)
+    try:
+        new = rebuild_from_words(clip["edl"], words, {round(t, 3) for t in body.kept}, start, end)
+    except ValueError as e:
+        raise api_error(400, str(e), "EMPTY_EDL")
+    return await _update(clip["_id"], {
+        "$set": {"edl": new, "variants": _rebuilt_variants(clip, new, words)},
+        "$push": {"edl_versions": {"edl": new, "edited_by": "user", "at": utcnow()}},
+    })
+
+
 @router.post("/clips/{clip_id}/undo", response_model=Clip)
 async def undo(clip_id: str, user: dict = Depends(get_current_user)):
     """Drop the latest version and restore the one before it. The first AI version can't be undone."""
     clip = await owned_clip(clip_id, user)
     if len(clip["edl_versions"]) < 2:
         raise api_error(400, "Nothing to undo", "NOTHING_TO_UNDO")
+    previous = clip["edl_versions"][-2]["edl"]
+    _, words = await clip_context(clip)
     return await _update(clip["_id"], {
-        "$set": {"edl": clip["edl_versions"][-2]["edl"]},
+        "$set": {"edl": previous, "variants": _rebuilt_variants(clip, previous, words)},
         "$pop": {"edl_versions": 1},
     })
 

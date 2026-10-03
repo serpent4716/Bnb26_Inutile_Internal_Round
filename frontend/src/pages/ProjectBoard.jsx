@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router'
+import { Link, useLocation, useNavigate } from 'react-router'
 import { DndContext, DragOverlay, KeyboardSensor, PointerSensor, useDraggable, useDroppable, useSensor, useSensors } from '@dnd-kit/core'
 import { DotsSixVertical } from '@phosphor-icons/react'
 import { Page } from '../components/Page'
 import { createProject, listProjects, setStage } from '../api/projects'
 import { errorMessage } from '../api/client'
 import { parseDate } from '../lib/format'
+import { btn, card, errorText, field, skeleton } from '../components/ui'
 
 const STAGES = [
   ['idea', 'Idea'], ['scripting', 'Scripting'], ['recording', 'Recording'], ['editing', 'Editing'],
@@ -13,15 +14,15 @@ const STAGES = [
 ]
 const LABEL = Object.fromEntries(STAGES)
 
-function CardBody({ project, handle }) {
+function CardBody({ project, handle, floating = false }) {
   return (
-    <div className="flex items-start gap-2 rounded-lg border border-zinc-200 bg-white p-3 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
+    <div className={`flex items-start gap-2 p-3 ${card} ${floating ? 'shadow-[0_8px_24px_rgba(32,32,32,0.08)]' : ''}`}>
       {handle}
       <div className="min-w-0">
-        <Link to={`/projects/${project.id}`} className="block text-sm font-medium leading-snug hover:text-orange-600 dark:hover:text-orange-400">
+        <Link to={`/projects/${project.id}`} className="block rounded-xs text-[15px] font-semibold leading-snug hover:underline hover:underline-offset-4 focus-ring">
           {project.title}
         </Link>
-        <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+        <p className="mt-1.5 text-xs text-mute">
           Updated {parseDate(project.updated_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
         </p>
       </div>
@@ -36,7 +37,7 @@ function Card({ project }) {
       {...listeners}
       {...attributes}
       aria-label={`Move ${project.title}. Currently in ${LABEL[project.stage]}.`}
-      className="mt-0.5 -ml-1 shrink-0 cursor-grab touch-none rounded text-zinc-400 hover:text-zinc-700 focus-visible:outline-2 focus-visible:outline-orange-500 active:cursor-grabbing dark:hover:text-zinc-200"
+      className="mt-0.5 -ml-1 shrink-0 cursor-grab touch-none rounded-xs text-stone hover:text-ink focus-ring active:cursor-grabbing"
     >
       <DotsSixVertical size={18} weight="bold" />
     </button>
@@ -54,11 +55,11 @@ function Column({ stage, label, projects }) {
     <section
       ref={setNodeRef}
       aria-label={`${label}, ${projects.length} projects`}
-      className={`flex w-60 shrink-0 flex-col rounded-lg p-2 transition-colors ${isOver ? 'bg-orange-500/10 ring-1 ring-orange-500/50' : 'bg-zinc-100 dark:bg-zinc-900/60'}`}
+      className={`flex min-w-40 flex-1 flex-col rounded-lg border p-2.5 transition-colors ${isOver ? 'border-hairline-strong bg-card' : 'border-transparent bg-bone'}`}
     >
-      <h2 className="flex items-center justify-between px-1 pt-1 pb-2 text-xs font-medium text-zinc-600 dark:text-zinc-400">
+      <h2 className="flex items-center justify-between px-1.5 pt-1 pb-3 text-sm font-semibold">
         {label}
-        <span className="tabular-nums">{projects.length}</span>
+        <span className="font-mono text-xs font-normal text-mute tabular-nums">{projects.length}</span>
       </h2>
       <ul className="flex min-h-24 flex-1 flex-col gap-2">
         {projects.map((p) => <Card key={p.id} project={p} />)}
@@ -69,6 +70,7 @@ function Column({ stage, label, projects }) {
 
 export default function ProjectBoard() {
   const navigate = useNavigate()
+  const autoFocus = !!useLocation().state?.create
   const [projects, setProjects] = useState(null)
   const [title, setTitle] = useState('')
   const [error, setError] = useState('')
@@ -107,27 +109,28 @@ export default function ProjectBoard() {
 
   return (
     <Page title="Projects" description="Track each piece of content from idea to published. Drag a card to change its stage.">
-      <form onSubmit={create} className="flex max-w-xl flex-col gap-3 sm:flex-row sm:items-end">
-        <label className="grid flex-1 gap-2 text-sm font-medium">
+      <form onSubmit={create} className="flex max-w-2xl flex-col gap-3 sm:flex-row sm:items-end">
+        <label className="grid flex-1 gap-2 text-sm font-semibold">
           New project
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             required
-            placeholder="Why cutting coffee won't make you rich"
-            className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm placeholder:text-zinc-500 focus:border-orange-500 focus:outline-2 focus:outline-orange-500/30 dark:border-zinc-700 dark:bg-zinc-900 dark:placeholder:text-zinc-400"
+            autoFocus={autoFocus}
+            placeholder="Name your next video"
+            className={field}
           />
         </label>
-        <button className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-medium text-white hover:bg-orange-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-500 active:scale-[0.98]">
+        <button className={btn.primary}>
           Create
         </button>
       </form>
-      {error && <p role="alert" className="mt-3 text-sm text-red-600 dark:text-red-400">{error}</p>}
+      {error && <p role="alert" className={`mt-3 ${errorText}`}>{error}</p>}
 
-      <div className="mt-8 -mx-4 overflow-x-auto px-4 pb-4 md:-mx-10 md:px-10">
+      <div className="mt-10 -mx-4 overflow-x-auto px-4 pb-4 md:-mx-6 md:px-6">
         {projects === null ? (
           <div className="flex gap-3">
-            {STAGES.slice(0, 4).map(([s]) => <div key={s} className="h-48 w-60 shrink-0 rounded-lg bg-zinc-200 motion-safe:animate-pulse dark:bg-zinc-800" />)}
+            {STAGES.map(([s]) => <div key={s} className={`h-56 min-w-40 flex-1 ${skeleton}`} />)}
           </div>
         ) : (
           <DndContext sensors={sensors} onDragStart={({ active }) => setDragging(active.data.current.project)} onDragEnd={drop} onDragCancel={() => setDragging(null)}>
@@ -137,7 +140,7 @@ export default function ProjectBoard() {
               ))}
             </div>
             <DragOverlay dropAnimation={null}>
-              {dragging && <div className="w-56 rotate-2"><CardBody project={dragging} /></div>}
+              {dragging && <div className="w-48 rotate-2"><CardBody project={dragging} floating /></div>}
             </DragOverlay>
           </DndContext>
         )}

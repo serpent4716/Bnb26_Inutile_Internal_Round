@@ -32,7 +32,7 @@ export default function TranscriptViewer({ transcript, media }) {
     media.play()
   }
 
-  if (!segments.length) return <p className="text-sm text-zinc-500">No speech was detected in this file.</p>
+  if (!segments.length) return <p className="text-sm text-mute">No speech was detected in this file.</p>
 
   return (
     <div className="space-y-5">
@@ -40,20 +40,20 @@ export default function TranscriptViewer({ transcript, media }) {
         <div key={s.idx} className={s.is_filler ? 'opacity-50' : ''}>
           <button
             onClick={() => seek(s.start)}
-            className="font-mono text-xs text-zinc-500 tabular-nums hover:text-orange-600 focus-visible:outline-2 focus-visible:outline-orange-500 dark:text-zinc-400 dark:hover:text-orange-400"
+            className="rounded-xs font-mono text-xs text-mute hover:text-ink hover:underline focus-ring"
           >
             {formatTime(s.start)}
           </button>
-          <p className="mt-1 leading-relaxed">
+          <p className="mt-1 text-base leading-relaxed">
             {s.words.map((w, i) => (
               <button
                 key={i}
                 onClick={() => seek(w.start)}
                 title={`${w.start.toFixed(2)}s`}
-                className={`rounded px-0.5 transition-colors focus-visible:outline-2 focus-visible:outline-orange-500 ${
+                className={`rounded px-0.5 transition-colors focus-ring ${
                   s.offset + i === active
-                    ? 'bg-orange-500 text-white'
-                    : 'hover:bg-zinc-200 dark:hover:bg-zinc-800'
+                    ? 'bg-dark text-on-dark'
+                    : 'hover:bg-bone'
                 }`}
               >
                 {w.w}
@@ -61,7 +61,7 @@ export default function TranscriptViewer({ transcript, media }) {
             ))}
           </p>
           {s.silence_after >= 0.5 && (
-            <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{s.silence_after.toFixed(1)}s pause</p>
+            <p className="mt-1 text-xs text-mute">{s.silence_after.toFixed(1)}s pause</p>
           )}
         </div>
       ))}

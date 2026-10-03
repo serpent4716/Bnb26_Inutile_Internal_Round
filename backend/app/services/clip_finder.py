@@ -102,9 +102,18 @@ def snap(start_t: float, end_t: float, sents: list[dict]) -> tuple[int, int]:
 
 
 def shape(i0: int, i1: int, sents: list[dict], words: list[dict], duration: float | None) -> tuple[float, float] | None:
-    """Enforce MIN_S..MAX_S (dropping trailing sentences if long), then pad PAD_S without touching neighbour words."""
+    """Enforce MIN_S..MAX_S: drop trailing sentences if long; if short, grow by whole sentences (forward first,
+    which completes the thought) so a good-but-short pick from a weaker model isn't thrown away.
+    Then pad PAD_S without touching neighbour words."""
     while i1 > i0 and sents[i1]["end"] - sents[i0]["start"] > MAX_S:
         i1 -= 1
+    while sents[i1]["end"] - sents[i0]["start"] < MIN_S:
+        if i1 + 1 < len(sents) and sents[i1 + 1]["end"] - sents[i0]["start"] <= MAX_S:
+            i1 += 1
+        elif i0 > 0 and sents[i1]["end"] - sents[i0 - 1]["start"] <= MAX_S:
+            i0 -= 1
+        else:
+            break
     if not MIN_S <= sents[i1]["end"] - sents[i0]["start"] <= MAX_S:
         return None
     w0, w1 = sents[i0]["w0"], sents[i1]["w1"]
@@ -164,7 +173,7 @@ async def find_clips(
                 niche=niche or "general", tone=f"\nCreator tone: {tone}" if tone else "",
                 min_s=MIN_S, max_s=MAX_S, transcript=transcript_lines(chunk, list(adlibs)),
             )
-            raw += (await llm.generate_json(prompt, Candidates)).clips
+            raw += (await llm.generate_json(prompt, Candidates, deep=True)).clips
         t0 += CHUNK_S - OVERLAP_S
 
     clips = []

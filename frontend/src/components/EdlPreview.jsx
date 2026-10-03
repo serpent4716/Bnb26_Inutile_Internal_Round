@@ -61,7 +61,7 @@ export default function EdlPreview({ edl, src, srcAspect, label }) {
   const clean = edl.caption_style === 'clean_bottom'
   return (
     <div>
-      <div ref={frame} className={`relative overflow-hidden rounded-lg bg-zinc-950 [container-type:size] ${FRAME[edl.aspect_ratio]}`}>
+      <div ref={frame} className={`relative overflow-hidden rounded-md bg-dark [container-type:size] ${FRAME[edl.aspect_ratio]}`}>
         <div ref={layer} className="absolute inset-0 origin-center transition-transform duration-150">
           <video
             ref={setMedia}
@@ -74,7 +74,7 @@ export default function EdlPreview({ edl, src, srcAspect, label }) {
         </div>
         {shown.hook && (
           <p className="absolute inset-x-[6%] top-[9%] text-center">
-            <span className="box-decoration-clone bg-zinc-950/80 px-[0.3em] py-[0.1em] leading-snug font-bold text-white" style={{ fontSize: '7cqmin' }}>
+            <span className="box-decoration-clone bg-dark/80 px-[0.3em] py-[0.1em] leading-snug font-bold text-white" style={{ fontSize: '7cqmin' }}>
               {shown.hook.text}
             </span>
           </p>
@@ -90,7 +90,7 @@ export default function EdlPreview({ edl, src, srcAspect, label }) {
         <button
           onClick={() => (playing ? player.stop() : player.play(label, segs))}
           aria-label={playing ? `Stop ${label} preview` : `Play ${label} preview`}
-          className="absolute bottom-3 left-3 inline-flex size-10 items-center justify-center rounded-full bg-zinc-950/70 text-white backdrop-blur transition hover:bg-zinc-950/90 focus-visible:outline-2 focus-visible:outline-orange-500 active:scale-95"
+          className="absolute bottom-3 left-3 inline-flex size-10 items-center justify-center rounded-full bg-deep/75 text-on-dark transition-colors hover:bg-deep focus-ring"
         >
           {playing ? <Stop size={18} weight="fill" /> : <Play size={18} weight="fill" />}
         </button>

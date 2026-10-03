@@ -15,6 +15,7 @@ from bson import ObjectId
 from fastapi import BackgroundTasks
 
 from app.db import db
+from app.errors import describe
 from app.models.common import utcnow
 
 log = logging.getLogger("uvicorn.error")
@@ -59,17 +60,18 @@ async def fail_job(job_id: str, error: str) -> None:
     )
 
 
-async def _run(job_id: str, fn: Callable[..., Awaitable[Any]], *args: Any) -> None:
+async def execute(job_id: str, fn: Callable[..., Awaitable[Any]], *args: Any) -> None:
+    """Run `await fn(job_id, *args)` now, recording running / done / failed on the job."""
     await db.jobs.update_one({"_id": ObjectId(job_id)}, {"$set": {"status": "running"}})
     try:
         await fn(job_id, *args)
     except Exception as e:
         log.exception("job %s failed", job_id)
-        await fail_job(job_id, str(e))
+        await fail_job(job_id, describe(e))
     else:
         await finish_job(job_id)
 
 
 def run_job(bg: BackgroundTasks, job_id: str, fn: Callable[..., Awaitable[Any]], *args: Any) -> None:
     """Schedule `await fn(job_id, *args)` after the response is sent."""
-    bg.add_task(_run, job_id, fn, *args)
+    bg.add_task(execute, job_id, fn, *args)

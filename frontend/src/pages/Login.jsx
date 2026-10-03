@@ -1,17 +1,16 @@
 import { useState } from 'react'
-import { VideoCamera } from '@phosphor-icons/react'
 import { login, register } from '../api/auth'
 import { errorMessage } from '../api/client'
 import { useAuth } from '../store/auth'
+import { btn, errorText, field } from '../components/ui'
+import { Wordmark } from '../App'
 
-const input =
-  'w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-500 focus:border-orange-500 focus:outline-2 focus:outline-orange-500/30 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-400'
-
-function Field({ label, ...props }) {
+function Field({ label, hint, ...props }) {
   return (
-    <label className="grid gap-2 text-sm font-medium">
+    <label className="grid gap-2 text-sm font-semibold">
       {label}
-      <input className={input} {...props} />
+      <input className={field} {...props} />
+      {hint && <span className="text-sm font-normal text-mute">{hint}</span>}
     </label>
   )
 }
@@ -40,32 +39,50 @@ export default function Login() {
   }
 
   return (
-    <div className="flex min-h-[100dvh] items-center px-4">
-      <form onSubmit={submit} className="mx-auto grid w-full max-w-sm gap-5">
-        <div className="flex items-center gap-2">
-          <VideoCamera size={24} weight="fill" className="text-orange-500" />
-          <span className="text-lg font-semibold tracking-tight">CreatorAi</span>
+    <div className="grid min-h-[100dvh] lg:grid-cols-[1.15fr_1fr]">
+      {/* hero-band: the one full-bleed orange surface, with the atmospheric mesh */}
+      <section
+        className="relative flex flex-col justify-between overflow-hidden bg-primary px-6 py-10 text-on-dark md:px-12 md:py-14"
+        style={{ backgroundImage: 'radial-gradient(120% 90% at 85% 15%, var(--color-hero-glow) 0%, transparent 55%), radial-gradient(90% 70% at 10% 110%, var(--color-hero-pink) 0%, transparent 60%)' }}
+      >
+        <Wordmark className="text-on-dark" cut="border-l-primary" />
+        <div className="mt-16 lg:mt-0">
+          <h1 className="font-display text-[clamp(3rem,7vw+1rem,8rem)] leading-none font-bold tracking-[-0.03em]">
+            Footage in.<br />Posts out.
+          </h1>
+          <p className="mt-6 max-w-[34ch] text-lg leading-relaxed font-semibold text-on-dark-mute">
+            Your script and raw take become ranked, captioned, platform-ready clips you can still edit.
+          </p>
         </div>
-        <h1 className="text-2xl font-semibold tracking-tight">{mode === 'login' ? 'Sign in' : 'Create your account'}</h1>
-        {mode === 'register' && <Field label="Name" value={form.name} onChange={set('name')} required autoComplete="name" />}
-        <Field label="Email" type="email" value={form.email} onChange={set('email')} required autoComplete="email" />
-        <Field label="Password" type="password" value={form.password} onChange={set('password')} required minLength={mode === 'register' ? 8 : undefined} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} />
-        {mode === 'register' && <Field label="Niche (optional)" value={form.niche} onChange={set('niche')} placeholder="Personal finance, tech, fitness..." />}
-        {error && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{error}</p>}
-        <button
-          disabled={busy}
-          className="rounded-lg bg-orange-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-orange-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-500 active:scale-[0.98] disabled:opacity-60"
-        >
-          {mode === 'login' ? 'Sign in' : 'Create account'}
-        </button>
-        <button
-          type="button"
-          onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError('') }}
-          className="text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
-        >
-          {mode === 'login' ? 'New here? Create an account' : 'Have an account? Sign in'}
-        </button>
-      </form>
+      </section>
+
+      <section className="flex items-center px-6 py-12 md:px-12">
+        <form onSubmit={submit} className="mx-auto grid w-full max-w-sm gap-5">
+          <h2 className="display-md">{mode === 'login' ? 'Sign in' : 'Create your account'}</h2>
+          {mode === 'register' && <Field label="Name" value={form.name} onChange={set('name')} required autoComplete="name" />}
+          <Field label="Email" type="email" value={form.email} onChange={set('email')} required autoComplete="email" />
+          <Field
+            label="Password" type="password" value={form.password} onChange={set('password')} required
+            minLength={mode === 'register' ? 8 : undefined} autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+            hint={mode === 'register' ? 'At least 8 characters.' : undefined}
+          />
+          {mode === 'register' && (
+            <Field label="Niche" value={form.niche} onChange={set('niche')} placeholder="Personal finance, tech, fitness" hint="Optional. Used to tune hooks and copy." />
+          )}
+          {error && <p role="alert" className={errorText}>{error}</p>}
+          {/* the orange hero is this view's stamp, so the submit is the dark CTA */}
+          <button disabled={busy} className={`${btn.dark} w-full`}>
+            {busy ? 'One moment' : mode === 'login' ? 'Sign in' : 'Create account'}
+          </button>
+          <button
+            type="button"
+            onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError('') }}
+            className="justify-self-center rounded-full px-2 text-sm font-semibold text-charcoal hover:text-ink focus-ring"
+          >
+            {mode === 'login' ? 'New here? Create an account' : 'Have an account? Sign in'}
+          </button>
+        </form>
+      </section>
     </div>
   )
 }
