@@ -13,6 +13,7 @@ An AI creator operating platform: **script + raw footage → transcript → scri
 | Platforms | "Adapt for all": Shorts / Reels / TikTok / YouTube / LinkedIn / X versions (aspect, captions, length) with copy in each platform's style; MP4 export. |
 | Workflow | Kanban from idea to published; stages auto-advance; mock publish. |
 | Insights | Performance charts (sample data), real production stats, time saved by AI, AI-written insight cards. |
+| Trends (Trend to Short) | Trending YouTube topics turned into Short ideas; one click runs an agent pipeline (script → voiceover → stock footage → 9:16 render with karaoke captions), reviewable and editable at every step, then **Save to CreatorAi** adds it to Library + Projects. See [Trend to Short](#trend-to-short). |
 
 Stack: React (Vite) + Tailwind + Zustand · FastAPI + Motor · MongoDB Atlas (+ Vector Search) · FFmpeg · MediaPipe · faster-whisper / Groq Whisper · Gemini.
 
@@ -55,7 +56,10 @@ Check `http://localhost:8000/api/v1/health` shows `{"db":"ok","ffmpeg":true}`.
 | `CLOUDINARY_*` | if cloudinary | cloud name, key, secret |
 | `CORS_ORIGINS` | no | default `http://localhost:5173` |
 | `ENABLE_DEV_ENDPOINTS` | no | `true` enables `/dev/seed-analytics` and `/dev/reindex-embeddings`; set `false` in production |
-| `PEXELS_API_KEY` | no | unused for now (B-roll suggestions) |
+| `PEXELS_API_KEY` | no | stock footage for Trend to Short (also future B-roll suggestions) |
+| `FFMPEG_DIR` | no | folder holding `ffmpeg` + `ffprobe` when they aren't on PATH (winget installs are found automatically) |
+
+Trend to Short has its own variables; see [below](#trend-to-short).
 
 ### Semantic search index (Atlas UI, one time)
 
@@ -105,10 +109,44 @@ Render times seen while testing: 9:16 Shorts 1.4-3.5s, 1:1 LinkedIn 1.4-2.3s, 16
 
 **Before judging:** pre-process the demo footage (seed it), and only run one live generation. Free-tier Gemini allows ~20 requests per model per day and a full project run uses 4-8, so enable billing or keep a second key. If a model runs out, the app falls through the fallback list; if all are out, the UI says so instead of failing silently.
 
+## Trend to Short
+
+A separate **Trends** tab: pick a trending idea, and a pipeline of agents makes a finished vertical Short you can inspect and edit at every step.
+
+| Stage | Does | Providers (fallback chain) |
+|---|---|---|
+| Trends | Ranks trending topics, groups duplicates and writes a Short idea for each (cached 30 min) | YouTube Data API `mostPopular` (Google Trends RSS / Reddit available via `TREND_SOURCES`) |
+| Script | Strict-JSON script: hook in the first 3s, 20-45s total; validated, retried once | Gemini → Groq → OpenRouter → Ollama |
+| Voiceover | Per-scene TTS; audio length drives scene timing; word timestamps for captions | edge-tts (no key) → Piper → Kokoro; faster-whisper |
+| Footage | Vertical stock clips per scene, ranked, alternates kept so you can swap | Pexels → Pixabay → demo assets |
+| Video | Builds an EDL (JSON timeline) first, then renders it with FFmpeg: 1080×1920, ducked music, karaoke ASS captions, hook overlay. Editing the EDL re-renders with no new AI calls | FFmpeg |
+| Publish | **Save to CreatorAi** (Library video + script + project in *Review*), YouTube upload (private; dry run by default), or a TikTok/Instagram export package (not auto-posted) | |
+
+In **review mode** the run stops after each stage for **Approve & continue**; **Auto-run** goes straight through. Any stage can be rerun; editing the script or timeline marks later stages out of date. Progress streams live over SSE. The **Providers** page shows which services are configured.
+
+Code: `backend/app/trendshort/` (routes under `/api/v1/t2s`, runs in its own SQLite file at `backend/data/trendshort/`), `frontend/src/pages/trends/`.
+
+**Variables** (in `backend/.env`; it reuses `GEMINI_API_KEY`, `GEMINI_TEXT_MODEL`, `GROQ_API_KEY`, `PEXELS_API_KEY` and `WHISPER_LOCAL_MODEL` from above):
+
+| Variable | Notes |
+|---|---|
+| `T2S_MOCK_MODE` | `true` runs the whole pipeline offline on `app/trendshort/demo_assets`, no keys needed |
+| `YOUTUBE_API_KEY` | trending videos (Google Cloud → enable *YouTube Data API v3* → API key) |
+| `TREND_SOURCES` | default `youtube`; add `google_trends`, `reddit` (Reddit needs `REDDIT_CLIENT_ID`/`SECRET`) |
+| `GEMINI_MODEL` / `GROQ_MODEL` | model ids for this feature; `GEMINI_MODEL` falls back to `GEMINI_TEXT_MODEL`, a blank `GROQ_MODEL` skips Groq |
+| `LLM_ORDER` / `TTS_ORDER` | fallback order, defaults `gemini,groq,openrouter,ollama` / `edge,piper,kokoro` |
+| `PIXABAY_API_KEY` | second footage source |
+| `YOUTUBE_CLIENT_SECRETS` | path to an OAuth *Desktop app* client JSON for real uploads. Unverified Google apps can only upload **private** videos; the UI says so. |
+
+Full list with defaults: `backend/.env.example`.
+
+**60-second demo:** Trends → filter a region → **Make this Short** on a rising idea (review mode on) → edit a line in the script → **Approve & continue** through Voiceover (play a scene) and Footage (swap a clip) → watch the Video render → Publish tab → **Save to CreatorAi** → **Open project**: it's in *Review* with the video in the Library. Run the same trend again to show the stage cache (instant).
+
 ## Tests
 
 ```bash
-cd backend && python -m pytest       # alignment, clip finding, EDL building, rendering commands, search, insights
+cd backend && python -m pytest       # alignment, clip finding, EDL building, rendering commands, search, insights,
+                                     # Trend to Short (script validation, EDL, state machine, mock pipeline, API + save)
 ```
 
 ## Docs

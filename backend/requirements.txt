@@ -7,9 +7,18 @@ python-multipart
 pyjwt
 bcrypt
 pytest
+mongomock-motor          # tests only: in-memory Mongo for API tests
 groq
 cloudinary
 faster-whisper
 google-genai
 rapidfuzz
 numpy
+# Trend-to-Short feature (app/trendshort)
+sqlalchemy>=2.0
+httpx>=0.27
+python-dotenv>=1.0
+sse-starlette>=2.0
+edge-tts>=6.1
+google-api-python-client>=2.120
+google-auth-oauthlib>=1.2

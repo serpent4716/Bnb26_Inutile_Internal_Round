@@ -1,5 +1,4 @@
 import logging
-import shutil
 from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, Depends, FastAPI
@@ -16,6 +15,9 @@ from app.routers import assets, auth, clips, generate, insights, processing, pro
 from app.services.auth import get_current_user
 from app.services.llm import LLMQuotaError
 from app.services.storage import MEDIA_DIR
+from app.trendshort.config import find_tool
+from app.trendshort.router import files_router as t2s_files
+from app.trendshort.router import router as t2s
 
 log = logging.getLogger("uvicorn.error")
 
@@ -46,12 +48,15 @@ api = APIRouter(prefix="/api/v1")
 
 @api.get("/health")
 async def health():
-    return {"db": "ok" if await ping() else "down", "ffmpeg": shutil.which("ffmpeg") is not None}
+    return {"db": "ok" if await ping() else "down", "ffmpeg": find_tool("ffmpeg") is not None}
 
 
 api.include_router(auth.router)
 for r in (assets, scripts, projects, processing, clips, generate, insights):
     api.include_router(r.router, dependencies=[Depends(get_current_user)])
+# Trend-to-Short: auth is per-route (its SSE stream also accepts ?token=, its /files route is public like /media)
+api.include_router(t2s)
+api.include_router(t2s_files)
 
 app.include_router(api)
 # ponytail: local media is public by URL (a <video> tag can't send a bearer token); signed URLs if that matters

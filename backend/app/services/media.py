@@ -52,10 +52,18 @@ def parse_probe(data: dict) -> dict:
 FFMPEG_TIMEOUT_S = 900
 
 
+def resolve(args: list[str]) -> list[str]:
+    """Swap a bare "ffmpeg"/"ffprobe" for its full path (FFMPEG_DIR, PATH, saved Windows PATH, winget dirs),
+    so a fresh install works without restarting the terminal. Unknown binaries pass through unchanged."""
+    from app.trendshort.config import find_tool
+
+    return [find_tool(args[0]) or args[0], *args[1:]] if args and args[0] in ("ffmpeg", "ffprobe") else args
+
+
 async def run(args: list[str], cwd: Path | None = None) -> str:
     """Run a command in a thread (asyncio subprocesses are unreliable on Windows loops). Returns stdout.
     `cwd` lets filtergraphs reference helper files by bare name (no Windows path escaping)."""
-    proc = await asyncio.to_thread(subprocess.run, args, capture_output=True, encoding="utf-8", errors="replace", cwd=cwd,
+    proc = await asyncio.to_thread(subprocess.run, resolve(args), capture_output=True, encoding="utf-8", errors="replace", cwd=cwd,
                                  timeout=FFMPEG_TIMEOUT_S)
     if proc.returncode != 0:
         raise RuntimeError(f"{args[0]} failed: {proc.stderr.strip()[-500:]}")

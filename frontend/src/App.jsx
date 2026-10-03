@@ -12,11 +12,15 @@ import ProjectDetail from './pages/ProjectDetail'
 import ClipEditor from './pages/ClipEditor'
 
 const Insights = lazy(() => import('./pages/Insights')) // recharts only loads with this page
+const TrendFeed = lazy(() => import('./pages/trends/TrendFeed'))
+const TrendRun = lazy(() => import('./pages/trends/TrendRun'))
+const TrendProviders = lazy(() => import('./pages/trends/Providers'))
 
 const NAV = [
   { to: '/', label: 'Dashboard' },
   { to: '/library', label: 'Library' },
   { to: '/projects', label: 'Projects' },
+  { to: '/trends', label: 'Trends' },
   { to: '/insights', label: 'Insights' },
 ]
 
@@ -95,6 +99,9 @@ export default function App() {
             <Route path="/projects/:id" element={<ProjectDetail />} />
             <Route path="/clips/:id" element={<ClipEditor />} />
             <Route path="/insights" element={<Insights />} />
+            <Route path="/trends" element={<TrendFeed />} />
+            <Route path="/trends/runs/:id" element={<TrendRun />} />
+            <Route path="/trends/providers" element={<TrendProviders />} />
           </Routes>
         </Suspense>
       </main>
